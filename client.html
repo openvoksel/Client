@@ -29,10 +29,12 @@ uniform float scale;
 varying vec3 normal;
 varying vec3 pos;
 varying vec3 color;
+varying vec3 viewDir;
 void main() {
 	normal = a_normal;
 	pos = a_position.xyz+a_objPos.xyz;
 	color = a_color;
+	viewDir=vec3(viewMat[2][0], viewMat[2][1], viewMat[2][2]);
 	gl_Position = (vec4(a_position.xyz+a_objPos.xyz,1.0)*viewMat)*perspMatrix;
 }
 		</script>
@@ -43,29 +45,49 @@ uniform vec3 lightColor[8];
 uniform float lightStr[8];
 varying vec3 normal;
 varying vec3 pos;
+varying vec3 viewDir;
 varying vec3 color;
+
+const float shininess = 512.0;
+const float screenGamma = 2.2;
+const vec3 ambientColor = vec3(0.001,0.001,0.001);
+
 void main() {
-	vec3 mulColor = vec3(0.0,0.0,0.0);
-	for (int i=0;i<2;i++) {
+
+
+	vec3 ambientColor = vec3(0.001,0.001,0.001);
+	vec3 normal2 = normalize(normal);
+	vec3 colorLinear = vec3(0.0,0.0,0.0);
+	for (int i=0;i<8;i++) {
 		if ( lightStr[i] == 0.0) {
 			break;
 		}
-		float dis = sqrt(((lightPos[i].x-pos.x)*(lightPos[i].x-pos.x))+((lightPos[i].y-pos.y)*(lightPos[i].y-pos.y))+((lightPos[i].z-pos.z)*(lightPos[i].z-pos.z)));
-		float str = (lightStr[i]-dis)/lightStr[i];
-		float d = dot(normalize(lightPos[i]-pos),normalize(normal))*str;
-		if (str < 0.0 || d < 0.0) {
-			continue;
+
+		float att = pow(max(1.0 - pow((distance(pos,lightPos[i])/lightStr[i]), 2.0),0.0),2.0);
+
+		vec3 diffuseColor = lightColor[i]/1.5;
+		vec3 specColor = lightColor[i];
+
+		vec3 lightDir = normalize(lightPos[i] - pos);
+		float lambertian = max(dot(lightDir,normal2), 0.0);
+		float specular = 0.0;
+
+		if(lambertian > 0.0) {
+
+
+			vec3 halfDir = normalize(lightDir + viewDir);
+			float specAngle = max(dot(halfDir, normal2), 0.0);
+			specular = pow(specAngle, shininess);
+		
 		}
-		mulColor = vec3(mulColor.x+lightColor[i].x*d,mulColor.y+lightColor[i].y*d,mulColor.z+lightColor[i].z*d);
+		colorLinear = colorLinear + ((lambertian * diffuseColor )*lightColor[i]*color + specular * specColor) * att;
+		if (i==4)
+			colorLinear=vec3(1.0,1.0,1.0);
 	}
-	if (mulColor.x>255.0) {
-		mulColor.x=255.0;
-	} if (mulColor.y>255.0) {
-		mulColor.y=255.0;
-	} if (mulColor.z>255.0) {
-		mulColor.z=255.0;
-	}
-	gl_FragColor = vec4(mulColor.x/255.0*color.x,mulColor.y/255.0*color.y,mulColor.z/255.0*color.z,1.0);
+
+	vec3 colorGammaCorrected = pow(colorLinear+ambientColor, vec3(1.0/screenGamma));
+
+	gl_FragColor = vec4(colorGammaCorrected, 1.0);
 }
 		</script>
 		<script></script>
@@ -73,7 +95,6 @@ void main() {
 		<script type="text/javascript">
 window.onload = init;
 function init() {
-
 	var canvas = document.getElementById("canvas");
 	if (canvas===null) {
 		console.error("Error: can not get canvas.");
@@ -95,10 +116,7 @@ function init() {
 	}
 	gl.enable(gl.CULL_FACE);
 	gl.cullFace(gl.BACK);
-
-
-
-	var lookDistance = 750;
+	var lookDistance = 250;
 	var transition = {"X":0,"Y":0,"Z":0};
 	var keys = [];
 	var width;
@@ -122,19 +140,14 @@ function init() {
 	canvas.onmousedown = mouseClickDown;
 	canvas.onmouseup = mouseClickUp;
 	canvas.onmouseout = mouseClickUp;
-
 	gl.clearColor(0, 0, 0, 1.0);
 	gl.enable(gl.DEPTH_TEST);
 	gl.depthFunc(gl.LEQUAL);
-
 	gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 	var program = createProgramFromScripts(
 	gl, ["vshader", "fshader"],["a_position","a_normal","a_color","a_objPos"],
 									[0,			1,			2,			3]);
 	gl.useProgram(program);
-
-
-
 	
 	program.lightPos = gl.getUniformLocation(program,"lightPos");
 	program.lightColor = gl.getUniformLocation(program,"lightColor");
@@ -142,7 +155,6 @@ function init() {
 	program.viewMat = gl.getUniformLocation(program,"viewMat");
 	program.perspMatrix = gl.getUniformLocation(program,"perspMatrix");
 	program.scale = gl.getUniformLocation(program,"scale");
-
 	var index = [0, 1, 2,    0, 2, 3,    4, 5, 6,
 				 4, 6, 7,    8, 9,10,    8,10,11,
 				12,13,14,   12,14,15,   16,17,18,
@@ -151,27 +163,22 @@ function init() {
 		 0.5,-0.5, 0.5,
 		 0.5, 0.5, 0.5,
 		-0.5, 0.5, 0.5,
-
 		-0.5,-0.5,-0.5,
 		-0.5, 0.5,-0.5,
 		 0.5, 0.5,-0.5,
 		 0.5,-0.5,-0.5,
-
 		-0.5, 0.5,-0.5,
 		-0.5, 0.5, 0.5,
 		 0.5, 0.5, 0.5,
 		 0.5, 0.5,-0.5,
-
 		-0.5,-0.5,-0.5,
 		 0.5,-0.5,-0.5,
 		 0.5,-0.5, 0.5,
 		-0.5,-0.5, 0.5,
-
 		 0.5,-0.5,-0.5,
 		 0.5, 0.5,-0.5,
 		 0.5, 0.5, 0.5,
 		 0.5,-0.5, 0.5,
-
 		-0.5,-0.5,-0.5,
 		-0.5,-0.5, 0.5,
 		-0.5, 0.5, 0.5,
@@ -185,22 +192,18 @@ function init() {
 		0,0,-1,
 		0,0,-1,
 		0,0,-1,
-
 		0,1,0,
 		0,1,0,
 		0,1,0,
 		0,1,0,
-
 		0,-1,0,
 		0,-1,0,
 		0,-1,0,
 		0,-1,0,
-
 		1,0,0,
 		1,0,0,
 		1,0,0,
 		1,0,0,
-
 		-1,0,0,
 		-1,0,0,
 		-1,0,0,
@@ -243,65 +246,41 @@ function init() {
 			}
 		}
 	}
-
 	var vertBuffer = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, vertBuffer);
 	gl.enableVertexAttribArray(0);
 	gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(av), gl.STATIC_DRAW);
-
-
 	var normBuffer = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
 	gl.enableVertexAttribArray(1);
 	gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
 	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(an), gl.STATIC_DRAW);
-
-
 	var colorBuffer = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
 	gl.enableVertexAttribArray(2);
 	gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
 	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ac), gl.STATIC_DRAW);
-
 	
 	var objBuffer = gl.createBuffer();
 	gl.bindBuffer(gl.ARRAY_BUFFER, objBuffer);
 	gl.enableVertexAttribArray(3);
 	gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 0, 0);
 	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempObjArray), gl.STATIC_DRAW);
-
 	var out=[];
-
 	resize();
-
-
 	var l=tempObjArray.length/3;
-
 	av=[];
 	an=[];
 	ac=[];
 	tempObjArray=[];
-
-
-
-	var lights=[[0.0,0.0,200.0,  0.0,0.0,-200.0],
-				[255.0,255.0,255.0,  255.0,255.0,255.0],
-				[20000, 20000]];
-
-
+	var lights=[[0,0,100,  0,0,100,  0,0,100],
+				[1,0,0,     0,1,0,    0,0,1],
+				[200000,       200000,      200000]];
 	var passedTime;
-
 	var viewMat;
-
 	var a;
-
 	window.requestAnimationFrame(render);
-
-
-
-
-
 	function render() {
 		if(a = gl.getError())
 			console.error('Error:'+a);
@@ -316,7 +295,6 @@ function init() {
 		} if (keys[39]) {
 			transition.X -= 0.003125*(passedTime);
 		}
-
 		time = dateObj.getTime();
 		gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 		gl.uniform3fv(program.lightPos, lights[0]);
@@ -324,10 +302,7 @@ function init() {
 		gl.uniform1fv(program.lightStr, lights[2]);
 		viewMat = createTransformation([-rotY/2, -rotX/2, 0],[transition.X, transition.Y, transition.Z-lookDistance],[-transition.X, -transition.Y, -transition.Z],1);
 		gl.uniformMatrix4fv(program.viewMat,false , viewMat);
-
-
 		gl.drawArrays(gl.TRIANGLES, 0, l);
-
 		window.requestAnimationFrame(render);
 		// render();
 	}
@@ -338,24 +313,13 @@ function init() {
 		width = "innerWidth" in window 
 			? window.innerWidth
 			: document.documentElement.offsetWidth;
-
 		canvas.height = height;
 		canvas.width = width;
 		aspect = width / height;
-
 		perspMatrix = createPerspective(65, aspect, 1,1000);
-
 		gl.uniformMatrix4fv(program.perspMatrix,false , perspMatrix);
-
 		gl.viewport(0, 0, width, height);
 	}
-
-
-
-
-
-
-
 	function touchHandler(event)
 	{
 		var touches = event.changedTouches,
@@ -368,28 +332,18 @@ function init() {
 			case "touchend":   type = "mouseup";   break;
 			default:           return;
 		}
-
 		var simulatedEvent = document.createEvent("MouseEvent");
 		simulatedEvent.initMouseEvent(type, true, true, window, 1, 
 									first.screenX, first.screenY, 
 									first.clientX, first.clientY, false, 
 									false, false, false, 0/*left*/, null);
-
 		first.target.dispatchEvent(simulatedEvent);
 		event.preventDefault();
 	}
-
 	document.addEventListener("touchstart", touchHandler, true);
 	document.addEventListener("touchmove", touchHandler, true);
 	document.addEventListener("touchend", touchHandler, true);
 	document.addEventListener("touchcancel", touchHandler, true);    
-
-
-
-
-
-
-
 	function mouseMove(event) {
 		if (mouseDown) {
 			var nMouseX = event.clientX-(width-canvas.width)/2+0.5-canvas.width/2;
@@ -440,12 +394,9 @@ function init() {
 	function keysUp(event) {
 		keys[event.keyCode] = false;
 	}
-
-
 	var x;
 	var y;
 	var z;
-
 	var a00;
 	var a01;
 	var a02;
@@ -465,12 +416,10 @@ function init() {
 	var a31;
 	var a32;
 	var a33;
-
 	var b0;
 	var b1;
 	var b2;
 	var b3;
-
 	function multiply(a, b) {
 		a00 = a[0];
 		a01 = a[1];
@@ -488,47 +437,38 @@ function init() {
 		a31 = a[13];
 		a32 = a[14];
 		a33 = a[15];
-
 		b0 = b[0];
 		b1 = b[1];
 		b2 = b[2];
 		b3 = b[3];
-
 		out[0] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
 		out[1] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
 		out[2] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
 		out[3] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
-
 		b0 = b[4];
 		b1 = b[5];
 		b2 = b[6];
 		b3 = b[7];
-
 		out[4] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
 		out[5] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
 		out[6] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
 		out[7] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
-
 		b0 = b[8];
 		b1 = b[9];
 		b2 = b[10];
 		b3 = b[11];
-
 		out[8] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
 		out[9] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
 		out[10] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
 		out[11] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
-
 		b0 = b[12];
 		b1 = b[13];
 		b2 = b[14];
 		b3 = b[15];
-
 		out[12] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
 		out[13] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
 		out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
 		out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
-
 		return out;
 	}
 	function createTransformation(r,t,rp) {
@@ -540,7 +480,6 @@ function init() {
 						multiply(
 							multiply(
 								multiply(
-
 								[1.0,	0.0,		0.0,		-rp[0],
 								0.0,		1.0,		0.0,		-rp[1],
 								0.0,		0.0,		1.0,		-rp[2],
@@ -550,22 +489,18 @@ function init() {
 								Math.sin(r[2]*0.0174444444444444),	Math.cos(r[2]*0.0174444444444444),	0.0,		0.0,
 								0.0,		0.0,		1.0,		0.0,
 								0.0,		0.0,		0.0,		1.0]) ,
-
 							[Math.cos(r[1]*0.0174444444444444),	0.0,		Math.sin(r[1]*0.0174444444444444),	0.0,
 							0.0,		1.0,		0.0,		0.0,
 							-Math.sin(r[1]*0.0174444444444444),	0.0,		Math.cos(r[1]*0.0174444444444444),	0.0,
 							0.0,		0.0,		0.0,		1.0]) ,
-
 						[1.0,		0.0,		0.0,		0.0,
 						0.0,		Math.cos(r[0]*0.0174444444444444),	-Math.sin(r[0]*0.0174444444444444),	0.0,
 						0.0,		Math.sin(r[0]*0.0174444444444444),	Math.cos(r[0]*0.0174444444444444),	0.0,
 						0.0,		0.0,		0.0,		1.0]) ,
-
 					[1.0,		0.0,		0.0,		rp[0],
 					0.0,		1.0,		0.0,		rp[1],
 					0.0,		0.0,		1.0,		rp[2],
 					0.0,		0.0,		0.0,		1.0]) ,
-
 				[1.0,		0.0,		0.0,		t[0],
 				0.0,		1.0,		0.0,		t[1],
 				0.0,		0.0,		1.0,		t[2],
@@ -576,33 +511,26 @@ function init() {
 		out[6] = znear * Math.tan(fov * (Math.PI/360));
 		out[5] = -out[6];
 		out[4] = -out[6];
-
 		out[3] = out[6] - out[4];
 		out[2] = out[6] - out[5];
-
 		out[1] = zfar - znear;
 		out[10] = -(zfar + znear) / out[1];
 		out[14] = -2 * (zfar * znear) / out[1];
-
 		out[0] = 2 * znear / out[3];
 		out[0] = out[0] / aspect;
 		out[5] = 2 * znear / out[2];
-
 		out[0] = out[0];
 		out[1] = 0;
 		out[2] = 0;
 		out[3] = 0;
-
 		out[4] = 0;
 		out[5] = out[5];
 		out[6] = 0;
 		out[7] = 0;
-
 		out[8] = 0;
 		out[9] = 0;
 		out[10] = out[10];
 		out[11] = -1;
-
 		out[12] = 0;
 		out[13] = 0;
 		out[14] = out[14];
@@ -636,7 +564,6 @@ var error = function(msg) {
 		}
 	}
 };
-
 var loadShader = function(gl, shaderSource, shaderType, opt_errorCallback) {
 	var errFn = opt_errorCallback || error;
 	var shader = gl.createShader(shaderType);
@@ -649,10 +576,8 @@ var loadShader = function(gl, shaderSource, shaderType, opt_errorCallback) {
 		gl.deleteShader(shader);
 		return null;
 	}
-
 	return shader;
 };
-
 var loadProgram = function(
 		gl, shaders, opt_attribs, opt_locations, opt_errorCallback) {
 	var errFn = opt_errorCallback || error;
@@ -678,7 +603,6 @@ var loadProgram = function(
 	}
 	return program;
 };
-
 var createShaderFromScript = function(gl, scriptId, opt_shaderType, opt_errorCallback) {
 	var shaderSource = "";
 	var shaderType;
@@ -687,7 +611,6 @@ var createShaderFromScript = function(gl, scriptId, opt_shaderType, opt_errorCal
 		throw("*** Error: unknown script element" + scriptId);
 	}
 	shaderSource = shaderScript.text;
-
 	if (!opt_shaderType) {
 		if (shaderScript.type == "x-shader/x-vertex") {
 			shaderType = gl.VERTEX_SHADER;
@@ -698,17 +621,14 @@ var createShaderFromScript = function(gl, scriptId, opt_shaderType, opt_errorCal
 			//return null;
 		}
 	}
-
 	return loadShader(
 		gl, shaderSource, opt_shaderType ? opt_shaderType : shaderType,
 		opt_errorCallback);
 };
-
 var defaultShaderType = [
 	"VERTEX_SHADER",
 	"FRAGMENT_SHADER"
 ];
-
 var createProgramFromScripts = function(gl, shaderScriptIds, opt_attribs, opt_locations, opt_errorCallback) {
 	var shaders = [];
 	for (var ii = 0; ii < shaderScriptIds.length; ++ii) {
